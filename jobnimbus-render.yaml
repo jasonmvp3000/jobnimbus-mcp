@@ -7,6 +7,8 @@ services:
     healthCheckPath: /health
     envVars:
       - key: JOBNIMBUS_API_KEY
-        sync: false        # Render will prompt you to enter this — never commit your API key
+        sync: false
+      - key: MCP_SECRET
+        sync: false
       - key: NODE_ENV
         value: production
