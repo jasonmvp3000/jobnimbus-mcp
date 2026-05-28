@@ -65,6 +65,7 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     issuer:                                base,
     authorization_endpoint:               `${base}/authorize`,
     token_endpoint:                        `${base}/token`,
+    registration_endpoint:                `${base}/register`,
     response_types_supported:             ['code'],
     grant_types_supported:                ['authorization_code'],
     code_challenge_methods_supported:     ['S256'],
@@ -100,6 +101,19 @@ app.post('/token', (req, res) => {
   }
   pendingCodes.delete(code); // one-time use
   res.json({ access_token: MCP_SECRET, token_type: 'bearer', expires_in: 31_536_000 });
+});
+
+app.post('/register', (req, res) => {
+  // Accept any client registration and return a static client_id.
+  // We don't track clients — this is a private single-user server.
+  res.status(201).json({
+    client_id:                'cowork-client',
+    client_id_issued_at:      Math.floor(Date.now() / 1000),
+    token_endpoint_auth_method: 'none',
+    grant_types:              ['authorization_code'],
+    response_types:           ['code'],
+    redirect_uris:            req.body?.redirect_uris ?? [],
+  });
 });
 
 // --------------------------------------------------------------------------
