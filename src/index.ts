@@ -161,6 +161,20 @@ const TOOLS = [
     },
   },
   {
+    name: 'get_contact',
+    description:
+      'Get full details for a single JobNimbus contact by ID, including name, email, ' +
+      'phone, address, and other CRM fields. Use this to look up customer info from a ' +
+      'JobNimbus invoice before matching or creating the customer in Katana.',
+    inputSchema: {
+      type: 'object',
+      required: ['jnid'],
+      properties: {
+        jnid: { type: 'string', description: 'The JobNimbus contact JNID' },
+      },
+    },
+  },
+  {
     name: 'get_invoice',
     description:
       'Get a single JobNimbus invoice by JNID. Returns full detail including ' +
@@ -214,6 +228,10 @@ async function callTool(name: string, args: Record<string, any>): Promise<string
     case 'get_invoice': {
       if (!args.jnid) throw new Error('jnid is required');
       return JSON.stringify(await jn(`/v2/invoices/${args.jnid}`), null, 2);
+    }
+    case 'get_contact': {
+      if (!args.jnid) throw new Error('jnid is required');
+      return JSON.stringify(await jn(`/contacts/${args.jnid}`), null, 2);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
