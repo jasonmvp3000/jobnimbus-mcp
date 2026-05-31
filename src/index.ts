@@ -187,6 +187,32 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'list_jobs',
+    description:
+      'List or search JobNimbus jobs. Optionally filter by contact ID (returns all jobs ' +
+      'related to that contact), status name, or a free-text name search.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contact_id: { type: 'string', description: 'Return jobs related to this contact JNID' },
+        status:     { type: 'string', description: 'Filter by status name e.g. "In Progress"' },
+        name:       { type: 'string', description: 'Filter by job name (partial match)' },
+        size:       { type: 'number', description: 'Max results to return (default 50, max 1000)' },
+      },
+    },
+  },
+  {
+    name: 'get_job',
+    description: 'Get full details for a single JobNimbus job by its JNID.',
+    inputSchema: {
+      type: 'object',
+      required: ['jnid'],
+      properties: {
+        jnid: { type: 'string', description: 'The JobNimbus JNID of the job' },
+      },
+    },
+  },
 ];
 
 // --------------------------------------------------------------------------
@@ -232,6 +258,36 @@ async function callTool(name: string, args: Record<string, any>): Promise<string
     case 'get_contact': {
       if (!args.jnid) throw new Error('jnid is required');
       return JSON.stringify(await jn(`/contacts/${args.jnid}`), null, 2);
+    }
+    case 'list_jobs': {
+      const must: object[] = [];
+
+      if (args.contact_id) {
+        must.push({ term: { 'related.id': args.contact_id } });
+      }
+      if (args.status) {
+        must.push({ term: { status_name: args.status } });
+      }
+      if (args.name) {
+        must.push({ match: { name: args.name } });
+      }
+
+      const params: Record<string, string> = {
+        size: String(Math.min(args.size ?? 50, 1000)),
+      };
+      if (must.length > 0) {
+        params['filter'] = JSON.stringify({ must });
+      }
+
+      const data = await jn('/jobs', params);
+      return JSON.stringify(
+        { count: data.count, jobs: data.results ?? data },
+        null, 2
+      );
+    }
+    case 'get_job': {
+      if (!args.jnid) throw new Error('jnid is required');
+      return JSON.stringify(await jn(`/jobs/${args.jnid}`), null, 2);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
