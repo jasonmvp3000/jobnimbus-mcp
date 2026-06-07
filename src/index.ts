@@ -251,7 +251,6 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        size:          { type: 'number', description: 'Max results to return (default 50, max 100)' },
         contact_id:    { type: 'string', description: 'Filter by related contact or job JNID' },
         updated_since: {
           type: 'string',
@@ -380,24 +379,36 @@ async function callTool(name: string, args: Record<string, any>): Promise<string
       return JSON.stringify(results[0], null, 2);
     }
     case 'list_signed_estimates': {
-      const must: object[] = [
-        { terms: { status_name: ['Approved', 'Invoiced'] } },
-      ];
+      const must: object[] = [];
       if (args.contact_id)    must.push({ term: { 'related.id': args.contact_id } });
       if (args.updated_since) must.push({ range: { date_updated: { gte: args.updated_since } } });
 
-      const params: Record<string, string> = {
-        size: String(Math.min(args.size ?? 50, 100)),
-      };
-      if (must.length > 0) params['filter'] = JSON.stringify({ must });
+      const PAGE_SIZE = 100;
+      const allEstimates: any[] = [];
+      let from = 0;
 
-      const data = await jn('/estimates', params);
-      const estimates: any[] = data.results ?? data;
+      while (true) {
+        const params: Record<string, string> = {
+          size: String(PAGE_SIZE),
+          from: String(from),
+        };
+        if (must.length > 0) params['filter'] = JSON.stringify({ must });
 
-      const signed = estimates.filter((est: any) => {
-        const sig = (est.signature_status ?? '').toLowerCase();
-        return sig.includes('fully signed') || sig.includes('fully_signed');
+        const data = await jn('/estimates', params);
+        const page: any[] = data.results ?? data;
+        allEstimates.push(...page);
+
+        if (page.length < PAGE_SIZE) break; // last page
+        from += PAGE_SIZE;
+      }
+
+      const signed = allEstimates.filter((est: any) => {
+        const status = (est.status_name ?? '').toLowerCase();
+        const sig    = (est.signature_status ?? '').toLowerCase();
+        return (status === 'approved' || status === 'invoiced')
+            && (sig.includes('fully signed') || sig.includes('fully_signed'));
       });
+
       const summary = signed.map((est: any) => ({
         jnid:             est.jnid,
         number:           est.number,
