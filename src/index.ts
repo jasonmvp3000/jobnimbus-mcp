@@ -372,22 +372,28 @@ async function callTool(name: string, args: Record<string, any>): Promise<string
     }
     case 'get_estimate': {
       if (!args.jnid) throw new Error('jnid is required');
-      return JSON.stringify(await jn(`/estimates/${args.jnid}`), null, 2);
+      // JobNimbus has no single-record /estimates/{jnid} endpoint — use filter lookup
+      const params = { filter: JSON.stringify({ must: [{ term: { jnid: args.jnid } }] }), size: '1' };
+      const data = await jn('/estimates', params);
+      const results: any[] = data.results ?? data;
+      if (!results.length) throw new Error(`Estimate ${args.jnid} not found`);
+      return JSON.stringify(results[0], null, 2);
     }
     case 'list_signed_estimates': {
       const must: object[] = [
-        { term: { status_name: 'Approved' } },
+        { terms: { status_name: ['Approved', 'Invoiced'] } },
       ];
       if (args.contact_id)    must.push({ term: { 'related.id': args.contact_id } });
       if (args.updated_since) must.push({ range: { date_updated: { gte: args.updated_since } } });
 
       const params: Record<string, string> = {
-        size:   String(Math.min(args.size ?? 50, 100)),
-        filter: JSON.stringify({ must }),
+        size: String(Math.min(args.size ?? 50, 100)),
       };
+      if (must.length > 0) params['filter'] = JSON.stringify({ must });
 
       const data = await jn('/estimates', params);
       const estimates: any[] = data.results ?? data;
+
       const signed = estimates.filter((est: any) => {
         const sig = (est.signature_status ?? '').toLowerCase();
         return sig.includes('fully signed') || sig.includes('fully_signed');
