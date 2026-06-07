@@ -213,6 +213,54 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'list_estimates',
+    description:
+      'List JobNimbus estimates. Optionally filter by status name (e.g. "Draft", "Sent", ' +
+      '"Approved", "Denied", "Invoiced", "Void"), related contact/job JNID, or limit count. ' +
+      'Returns status, signature_status, line items, and financial totals for each estimate.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        size:       { type: 'number', description: 'Max estimates to return (default 50, max 100)' },
+        status:     { type: 'string', description: 'Filter by status name e.g. "Approved", "Sent", "Draft"' },
+        contact_id: { type: 'string', description: 'Filter by related contact or job JNID' },
+      },
+    },
+  },
+  {
+    name: 'get_estimate',
+    description:
+      'Get a single JobNimbus estimate by JNID. Returns full detail including line items, ' +
+      'status, signature_status ("Requested" / "Fully Signed"), dates, and all financial fields.',
+    inputSchema: {
+      type: 'object',
+      required: ['jnid'],
+      properties: {
+        jnid: { type: 'string', description: 'The JobNimbus JNID of the estimate' },
+      },
+    },
+  },
+  {
+    name: 'list_signed_estimates',
+    description:
+      'List JobNimbus estimates that have been fully signed by all parties. ' +
+      'These have status "Approved" and signature_status containing "Fully Signed". ' +
+      'Use updated_since to find estimates signed within a recent window ' +
+      '(Unix timestamp or ElasticSearch relative value e.g. "now-7d", "now-1d").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        size:          { type: 'number', description: 'Max results to return (default 50, max 100)' },
+        contact_id:    { type: 'string', description: 'Filter by related contact or job JNID' },
+        updated_since: {
+          type: 'string',
+          description: 'Only return estimates updated after this point. ' +
+            'Unix timestamp (e.g. 1747900000) or ElasticSearch relative (e.g. "now-7d", "now-24h").',
+        },
+      },
+    },
+  },
 ];
 
 // --------------------------------------------------------------------------
@@ -288,6 +336,73 @@ async function callTool(name: string, args: Record<string, any>): Promise<string
     case 'get_job': {
       if (!args.jnid) throw new Error('jnid is required');
       return JSON.stringify(await jn(`/jobs/${args.jnid}`), null, 2);
+    }
+    case 'list_estimates': {
+      const must: object[] = [];
+      if (args.contact_id) must.push({ term: { 'related.id': args.contact_id } });
+      if (args.status)     must.push({ term: { status_name: args.status } });
+
+      const params: Record<string, string> = {
+        size: String(Math.min(args.size ?? 50, 100)),
+      };
+      if (must.length > 0) params['filter'] = JSON.stringify({ must });
+
+      const data = await jn('/estimates', params);
+      const estimates: any[] = data.results ?? data;
+      const summary = estimates.map((est: any) => ({
+        jnid:             est.jnid,
+        number:           est.number,
+        status:           est.status_name,
+        signature_status: est.signature_status,
+        customer:         est.customer,
+        date_estimate:    est.date_estimate,
+        date_updated:     est.date_updated,
+        subtotal:         est.subtotal,
+        tax:              est.tax,
+        total:            est.total,
+        items: (est.items ?? []).map((item: any) => ({
+          name:        item.name,
+          description: item.description,
+          quantity:    item.quantity,
+          unit_price:  item.unit_price,
+          total_price: item.total_price,
+        })),
+      }));
+      return JSON.stringify({ count: summary.length, estimates: summary }, null, 2);
+    }
+    case 'get_estimate': {
+      if (!args.jnid) throw new Error('jnid is required');
+      return JSON.stringify(await jn(`/estimates/${args.jnid}`), null, 2);
+    }
+    case 'list_signed_estimates': {
+      const must: object[] = [
+        { term: { status_name: 'Approved' } },
+      ];
+      if (args.contact_id)    must.push({ term: { 'related.id': args.contact_id } });
+      if (args.updated_since) must.push({ range: { date_updated: { gte: args.updated_since } } });
+
+      const params: Record<string, string> = {
+        size:   String(Math.min(args.size ?? 50, 100)),
+        filter: JSON.stringify({ must }),
+      };
+
+      const data = await jn('/estimates', params);
+      const estimates: any[] = data.results ?? data;
+      const signed = estimates.filter((est: any) => {
+        const sig = (est.signature_status ?? '').toLowerCase();
+        return sig.includes('fully signed') || sig.includes('fully_signed');
+      });
+      const summary = signed.map((est: any) => ({
+        jnid:             est.jnid,
+        number:           est.number,
+        status:           est.status_name,
+        signature_status: est.signature_status,
+        customer:         est.customer,
+        date_estimate:    est.date_estimate,
+        date_updated:     est.date_updated,
+        total:            est.total,
+      }));
+      return JSON.stringify({ count: summary.length, signed_estimates: summary }, null, 2);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
